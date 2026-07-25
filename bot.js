@@ -10,7 +10,6 @@ const GITHUB_REPO = process.env.GITHUB_REPO;
 const UPI_VPA = process.env.UPI_VPA || 'c.sandeep@superyes';
 const UPI_NAME = process.env.UPI_NAME || 'My Business';
 
-// Your NoCodeAPI endpoint from the screenshot
 const NOCODEAPI_ENDPOINT = 'https://v1.nocodeapi.com/sandeep1111/telegram/GacagRwLbyHERlGO/sendText';
 
 if (!TOKEN) {
@@ -20,18 +19,14 @@ if (!TOKEN) {
 
 const bot = new Telegraf(TOKEN);
 
+// Active payment sessions map: orderId -> { userId, product, price }
 const activeCheckoutSessions = {};
-const waitingForUtr = {};
 const userPurchasedKeys = {};
 
-// Helper function to send logs/notifications via NoCodeAPI
 async function sendNoCodeAlert(textMessage) {
   try {
     const url = `${NOCODEAPI_ENDPOINT}?text=${encodeURIComponent(textMessage)}`;
-    const response = await fetch(url, { method: 'POST' });
-    if (!response.ok) {
-      console.error('Failed to send NoCodeAPI alert');
-    }
+    await fetch(url, { method: 'POST' });
   } catch (error) {
     console.error('Error with NoCodeAPI request:', error);
   }
@@ -161,8 +156,8 @@ bot.hears('📖 How to Buy', (ctx) => {
     '📖 **How to Buy License Keys:**\n\n' +
     '1️⃣ Tap **🔑 Purchase Key** from the main menu.\n' +
     '2️⃣ Select your desired loader brand and duration.\n' +
-    '3️⃣ Scan the UPI QR code and pay.\n' +
-    '4️⃣ Click **✅ I Have Paid & Enter UTR** and send your reference number to instantly claim your key! 🚀';
+    '3️⃣ Scan the UPI QR code and complete payment.\n' +
+    '4️⃣ Your license key will be delivered **instantly and automatically** upon successful payment! 🚀';
   ctx.reply(guideText, { parse_mode: 'Markdown', ...mainMenu });
 });
 
@@ -205,10 +200,10 @@ bot.hears(/₹(\d+)/, async (ctx) => {
       bhim: `upi://pay?pa=${encodeURIComponent(UPI_VPA)}&pn=${encodeURIComponent(UPI_NAME)}&am=${basePrice}&tr=${orderId}&tn=${encodeURIComponent(note)}&cu=INR`
     };
 
-    activeCheckoutSessions[userId] = {
+    activeCheckoutSessions[orderId] = {
+      userId: userId,
       product: text,
       price: basePrice,
-      orderId: orderId,
     };
 
     const caption = `
@@ -224,15 +219,12 @@ bot.hears(/₹(\d+)/, async (ctx) => {
 • [Paytm](${links.paytm})
 • [Any UPI App](${links.bhim})
 
-*Scan QR or use apps to pay, then click below to enter your UTR.*
+*Scan the QR code or click an app to pay. Your key will be sent **automatically** as soon as payment is confirmed!*
     `.trim();
 
     await ctx.replyWithPhoto(qrImageUrl, {
       caption: caption,
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('✅ I Have Paid & Enter UTR', `enter_utr_${orderId}`)],
-      ]),
     });
   } catch (error) {
     console.error('Error generating UPI QR:', error);
@@ -240,81 +232,82 @@ bot.hears(/₹(\d+)/, async (ctx) => {
   }
 });
 
-bot.action(/enter_utr_(.+)/, async (ctx) => {
-  const userId = ctx.from.id;
-  const orderId = ctx.match[1];
-  const session = activeCheckoutSessions[userId];
-
-  if (!session || session.orderId !== orderId) {
-    return ctx.answerCbQuery('❌ Session expired or invalid order.');
-  }
-
-  waitingForUtr[userId] = session;
-  delete activeCheckoutSessions[userId];
-
-  await ctx.answerCbQuery();
-  await ctx.reply('✍️ Please type and send your **12-digit UTR / Reference Number** now to receive your key:', {
-    parse_mode: 'Markdown',
-  });
-});
-
-bot.on('text', async (ctx, next) => {
-  const userId = ctx.from.id;
-  if (waitingForUtr[userId]) {
-    const utrText = ctx.message.text.trim();
-    
-    if (utrText.length < 8) {
-      return ctx.reply('❌ Invalid UTR format. Please send your valid 12-digit UPI reference number.');
-    }
-
-    const session = waitingForUtr[userId];
-    delete waitingForUtr[userId];
-
-    const filePath = getFilePathForProduct(session.product);
-    if (!filePath) {
-      return ctx.reply('❌ Invalid product category configuration.');
-    }
-
-    await ctx.reply('🔄 Verifying transaction and fetching your key...');
-
-    const { keys } = await fetchKeysFromGitHub(filePath);
-    if (keys.length === 0) {
-      return ctx.reply('❌ Out of stock! Please contact support @c_sandeep with your UTR: ' + utrText);
-    }
-
-    const deliveredKey = keys[0];
-    const success = await removeKeyFromGitHub(filePath, deliveredKey);
-
-    if (success) {
-      if (!userPurchasedKeys[userId]) {
-        userPurchasedKeys[userId] = [];
-      }
-      userPurchasedKeys[userId].push({
-        product: session.product,
-        key: deliveredKey,
-        price: session.price,
-      });
-
-      // Send notification alert to your NoCodeAPI channel logs
-      await sendNoCodeAlert(`🚨 New Sale!\nUser ID: ${userId}\nProduct: ${session.product}\nUTR: ${utrText}\nKey Delivered: ${deliveredKey}`);
-
-      await ctx.reply(
-        `✅ **Payment Verified & Key Delivered!**\n\n📦 Product: \`${session.product}\`\n🔢 UTR: \`${utrText}\`\n🔑 Your Key:\n\`${deliveredKey}\``,
-        { parse_mode: 'Markdown', ...mainMenu }
-      );
-    } else {
-      ctx.reply('❌ Failed to assign key from repository. Please contact support.');
-    }
-    return;
-  }
-  return next();
-});
-
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+app.use(express.json());
+
 app.get('/', (req, res) => {
-  res.status(200).send('Telegram UPI Bot with NoCodeAPI Logging is running successfully!');
+  res.status(200).send('Telegram UPI Bot with Smart Webhook Auto-Verification is running successfully!');
+});
+
+// Smart Webhook Endpoint: Automatically extracts orderId from notification text via Regex
+app.post('/webhook', async (req, res) => {
+  try {
+    let { orderId, text, status } = req.body;
+    const rawInput = text || orderId || JSON.stringify(req.body);
+
+    let matchedOrderId = orderId;
+    if (!matchedOrderId || !activeCheckoutSessions[matchedOrderId]) {
+      const match = rawInput.match(/ord_\d+/);
+      if (match) {
+        matchedOrderId = match[0];
+      }
+    }
+
+    const session = activeCheckoutSessions[matchedOrderId];
+    if (!session) {
+      return res.status(404).json({ error: 'Order session not found or expired', received: rawInput });
+    }
+
+    const isSuccess = status ? (status.toLowerCase() === 'success') : true;
+
+    if (isSuccess) {
+      const { userId, product, price } = session;
+      const filePath = getFilePathForProduct(product);
+
+      if (filePath) {
+        const { keys } = await fetchKeysFromGitHub(filePath);
+        if (keys.length > 0) {
+          const deliveredKey = keys[0];
+          const success = await removeKeyFromGitHub(filePath, deliveredKey);
+
+          if (success) {
+            if (!userPurchasedKeys[userId]) {
+              userPurchasedKeys[userId] = [];
+            }
+            userPurchasedKeys[userId].push({
+              product: product,
+              key: deliveredKey,
+              price: price,
+            });
+
+            await sendNoCodeAlert(`🚨 Automated Sale!\nUser ID: ${userId}\nProduct: ${product}\nOrder: ${matchedOrderId}\nKey Delivered: ${deliveredKey}`);
+
+            await bot.telegram.sendMessage(
+              userId,
+              `✅ **Payment Verified & Key Delivered Automatically!**\n\n📦 Product: \`${product}\`\n🔑 Your Key:\n\`${deliveredKey}\``,
+              { parse_mode: 'Markdown' }
+            );
+
+            delete activeCheckoutSessions[matchedOrderId];
+            return res.status(200).json({ status: 'success', message: 'Key delivered' });
+          }
+        } else {
+          await bot.telegram.sendMessage(
+            userId,
+            `⚠️ Payment received for **${product}**, but keys are currently out of stock! Please contact support @c_sandeep.`,
+            { parse_mode: 'Markdown' }
+          );
+        }
+      }
+    }
+
+    res.status(200).json({ status: 'received' });
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.listen(PORT, () => {
