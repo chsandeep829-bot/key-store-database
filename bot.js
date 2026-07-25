@@ -19,7 +19,6 @@ if (!TOKEN) {
 
 const bot = new Telegraf(TOKEN);
 
-// Active payment sessions map: orderId -> { userId, product, price, timestamp }
 const activeCheckoutSessions = {};
 const userPurchasedKeys = {};
 
@@ -207,6 +206,8 @@ bot.hears(/₹(\d+)/, async (ctx) => {
       timestamp: Date.now(),
     };
 
+    console.log(`📝 Created checkout session: Order ID ${orderId} for Price ₹${basePrice} (User: ${userId})`);
+
     const caption = `
 💳 **Payment Checkout**
 
@@ -239,31 +240,35 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.status(200).send('Telegram UPI Bot with Smart Amount-Matching Webhook is running successfully!');
+  res.status(200).send('Telegram UPI Bot with Fixed Title/Body Webhook is running successfully!');
 });
 
-// Smart Webhook Endpoint: Matches incoming notification text amount to active sessions
 app.post('/webhook', async (req, res) => {
   try {
-    let { orderId, text, status } = req.body;
-    const rawInput = text || orderId || JSON.stringify(req.body);
+    console.log('📥 Webhook Payload Received:', JSON.stringify(req.body));
+
+    const title = req.body.title || '';
+    const textBody = req.body.text || '';
+    const orderId = req.body.orderId || '';
+    const status = req.body.status || 'success';
+
+    // Combine title and text so amount detection captures the title (where ₹40.00 lives)
+    const rawInput = `${title} ${textBody} ${orderId} ${JSON.stringify(req.body)}`;
 
     let matchedOrderId = null;
 
-    // 1. Try to find explicit orderId if present
     if (orderId && activeCheckoutSessions[orderId]) {
       matchedOrderId = orderId;
     } else {
-      // 2. Search raw notification text for orderId (ord_...)
       const ordMatch = rawInput.match(/ord_\d+/);
       if (ordMatch && activeCheckoutSessions[ordMatch[0]]) {
         matchedOrderId = ordMatch[0];
       } else {
-        // 3. Fallback: Extract amount (e.g., ₹40) from notification and match active sessions
         const amountMatch = rawInput.match(/(?:₹|Rs\.?)\s*(\d+(?:\.\d+)?)/i);
         if (amountMatch) {
           const receivedAmount = parseFloat(amountMatch[1]);
-          // Find the newest active session matching this price
+          console.log(`🔍 Detected amount from notification: ₹${receivedAmount}`);
+          
           let latestTime = 0;
           for (const [id, session] of Object.entries(activeCheckoutSessions)) {
             if (session.price === receivedAmount && session.timestamp > latestTime) {
@@ -275,14 +280,15 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
+    console.log(`🎯 Matched Order ID: ${matchedOrderId}`);
+
     const session = activeCheckoutSessions[matchedOrderId];
     if (!session) {
+      console.log('⚠️ Active session not found for this notification. Active sessions:', activeCheckoutSessions);
       return res.status(404).json({ error: 'Matching active order session not found', received: rawInput });
     }
 
-    const isSuccess = status ? (status.toLowerCase() === 'success') : true;
-
-    if (isSuccess) {
+    if (status.toLowerCase() === 'success') {
       const { userId, product, price } = session;
       const filePath = getFilePathForProduct(product);
 
@@ -311,7 +317,7 @@ app.post('/webhook', async (req, res) => {
             );
 
             delete activeCheckoutSessions[matchedOrderId];
-            return res.status(200).json({ status: 'success', message: 'Key delivered via amount match' });
+            return res.status(200).json({ status: 'success', message: 'Key delivered successfully' });
           }
         } else {
           await bot.telegram.sendMessage(
