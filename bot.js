@@ -1,5 +1,4 @@
 import { Telegraf, Markup } from 'telegraf';
-import { generateUPIQR, buildIntentLinks } from 'upipay';
 import express from 'express';
 import dotenv from 'dotenv';
 
@@ -177,17 +176,17 @@ bot.hears(/₹(\d+)/, async (ctx) => {
 
     const basePrice = parseFloat(match[1]);
     const orderId = `ord_${Date.now()}`;
+    const note = `Payment for ${text}`;
 
-    const qr = await generateUPIQR({
-      vpa: UPI_VPA,
-      name: UPI_NAME,
-      amount: basePrice,
-      orderId: orderId,
-      note: `Payment for ${text}`,
-      mode: 'fixed',
-    });
+    const upiUri = `upi://pay?pa=${encodeURIComponent(UPI_VPA)}&pn=${encodeURIComponent(UPI_NAME)}&am=${basePrice}&tr=${orderId}&tn=${encodeURIComponent(note)}&cu=INR`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUri)}`;
 
-    const links = buildIntentLinks(qr.upiUri);
+    const links = {
+      phonepe: `phonepe://pay?pa=${encodeURIComponent(UPI_VPA)}&pn=${encodeURIComponent(UPI_NAME)}&am=${basePrice}&tr=${orderId}&tn=${encodeURIComponent(note)}&cu=INR`,
+      gpay: `tez://upi/pay?pa=${encodeURIComponent(UPI_VPA)}&pn=${encodeURIComponent(UPI_NAME)}&am=${basePrice}&tr=${orderId}&tn=${encodeURIComponent(note)}&cu=INR`,
+      paytm: `paytmmp://pay?pa=${encodeURIComponent(UPI_VPA)}&pn=${encodeURIComponent(UPI_NAME)}&am=${basePrice}&tr=${orderId}&tn=${encodeURIComponent(note)}&cu=INR`,
+      bhim: `upi://pay?pa=${encodeURIComponent(UPI_VPA)}&pn=${encodeURIComponent(UPI_NAME)}&am=${basePrice}&tr=${orderId}&tn=${encodeURIComponent(note)}&cu=INR`
+    };
 
     activeCheckoutSessions[userId] = {
       product: text,
@@ -211,7 +210,7 @@ bot.hears(/₹(\d+)/, async (ctx) => {
 *Or scan the QR code above.*
     `.trim();
 
-    await ctx.replyWithPhoto(qr.qrImage, {
+    await ctx.replyWithPhoto(qrImageUrl, {
       caption: caption,
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
