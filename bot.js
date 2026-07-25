@@ -238,9 +238,10 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
-  res.status(200).send('Telegram UPI Bot with Flexible Payload Webhook is running successfully!');
+  res.status(200).send('Telegram UPI Bot with Universal Webhook Handler is running successfully!');
 });
 
 app.post('/webhook', async (req, res) => {
@@ -248,7 +249,7 @@ app.post('/webhook', async (req, res) => {
     console.log('📥 Webhook Payload Received:', JSON.stringify(req.body));
 
     const body = req.body || {};
-    const rawInput = JSON.stringify(body) + ' ' + (body.text || '') + ' ' + (body.title || '') + ' ' + (body.content || '') + ' ' + (body.message || '');
+    const rawInput = JSON.stringify(body) + ' ' + (body.text || '') + ' ' + (body.title || '') + ' ' + (body.content || '') + ' ' + (body.message || '') + ' ' + (body.key || '');
 
     let matchedOrderId = null;
     const amountMatch = rawInput.match(/(?:₹|Rs\.?)\s*(\d+(?:\.\d+)?)/i);
