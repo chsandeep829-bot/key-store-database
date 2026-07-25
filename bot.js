@@ -126,7 +126,7 @@ bot.hears('XSCILENT LOADER', (ctx) => {
 });
 
 bot.hears('📋 My Keys', (ctx) => {
-  const userId = ctx.effectiveUser.id;
+  const userId = ctx.from.id;
   const purchased = userPurchasedKeys[userId] || [];
   if (purchased.length === 0) {
     ctx.reply("📋 You haven't purchased any keys yet.", mainMenu);
@@ -164,13 +164,13 @@ bot.hears('🎁 Redeem Code', (ctx) => {
 });
 
 bot.hears('🆔 My ID', (ctx) => {
-  ctx.reply(`Your User ID is: \`${ctx.effectiveUser.id}\``, { parse_mode: 'Markdown' });
+  ctx.reply(`Your User ID is: \`${ctx.from.id}\``, { parse_mode: 'Markdown' });
 });
 
 bot.hears(/₹(\d+)/, async (ctx) => {
   try {
     const text = ctx.message.text;
-    const userId = ctx.effectiveUser.id;
+    const userId = ctx.from.id;
     const match = text.match(/₹(\d+)/);
     if (!match) return;
 
@@ -225,7 +225,7 @@ bot.hears(/₹(\d+)/, async (ctx) => {
 
 bot.action(/claim_(.+)/, async (ctx) => {
   try {
-    const userId = ctx.effectiveUser.id;
+    const userId = ctx.from.id;
     const orderId = ctx.match[1];
     const session = activeCheckoutSessions[userId];
 
