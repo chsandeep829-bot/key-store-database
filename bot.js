@@ -240,21 +240,21 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.status(200).send('Telegram UPI Bot with Fixed Title/Body Webhook is running successfully!');
+  res.status(200).send('Telegram UPI Bot with Universal SMS Webhook is running successfully!');
 });
 
 app.post('/webhook', async (req, res) => {
   try {
     console.log('📥 Webhook Payload Received:', JSON.stringify(req.body));
 
-    const title = req.body.title || '';
-    const textBody = req.body.text || '';
-    const orderId = req.body.orderId || '';
-    const status = req.body.status || 'success';
+    // Universal payload extractor supporting text, content, message, msg, or raw body
+    const body = req.body || {};
+    const textBody = body.text || body.content || body.message || body.msg || (typeof body === 'string' ? body : '');
+    const title = body.title || '';
+    const orderId = body.orderId || '';
+    const status = body.status || 'success';
 
-    // Combine title and text so amount detection captures the title (where ₹40.00 lives)
-    const rawInput = `${title} ${textBody} ${orderId} ${JSON.stringify(req.body)}`;
-
+    const rawInput = `${title} ${textBody} ${orderId} ${JSON.stringify(body)}`;
     let matchedOrderId = null;
 
     if (orderId && activeCheckoutSessions[orderId]) {
@@ -267,7 +267,7 @@ app.post('/webhook', async (req, res) => {
         const amountMatch = rawInput.match(/(?:₹|Rs\.?)\s*(\d+(?:\.\d+)?)/i);
         if (amountMatch) {
           const receivedAmount = parseFloat(amountMatch[1]);
-          console.log(`🔍 Detected amount from notification: ₹${receivedAmount}`);
+          console.log(`🔍 Detected amount from SMS/Webhook: ₹${receivedAmount}`);
           
           let latestTime = 0;
           for (const [id, session] of Object.entries(activeCheckoutSessions)) {
@@ -284,7 +284,7 @@ app.post('/webhook', async (req, res) => {
 
     const session = activeCheckoutSessions[matchedOrderId];
     if (!session) {
-      console.log('⚠️ Active session not found for this notification. Active sessions:', activeCheckoutSessions);
+      console.log('⚠️ Active session not found. Active sessions:', activeCheckoutSessions);
       return res.status(404).json({ error: 'Matching active order session not found', received: rawInput });
     }
 
@@ -308,7 +308,7 @@ app.post('/webhook', async (req, res) => {
               price: price,
             });
 
-            await sendNoCodeAlert(`🚨 Automated Sale Verified!\nUser ID: ${userId}\nProduct: ${product}\nAmount matched: ₹${price}\nKey Delivered: ${deliveredKey}`);
+            await sendNoCodeAlert(`🚨 Automated SMS Sale Verified!\nUser ID: ${userId}\nProduct: ${product}\nAmount matched: ₹${price}\nKey Delivered: ${deliveredKey}`);
 
             await bot.telegram.sendMessage(
               userId,
@@ -317,7 +317,7 @@ app.post('/webhook', async (req, res) => {
             );
 
             delete activeCheckoutSessions[matchedOrderId];
-            return res.status(200).json({ status: 'success', message: 'Key delivered successfully' });
+            return res.status(200).json({ status: 'success', message: 'Key delivered successfully via SMS' });
           }
         } else {
           await bot.telegram.sendMessage(
