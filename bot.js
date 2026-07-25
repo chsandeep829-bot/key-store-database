@@ -240,42 +240,28 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.status(200).send('Telegram UPI Bot with Universal SMS Webhook is running successfully!');
+  res.status(200).send('Telegram UPI Bot with Flexible Payload Webhook is running successfully!');
 });
 
 app.post('/webhook', async (req, res) => {
   try {
     console.log('📥 Webhook Payload Received:', JSON.stringify(req.body));
 
-    // Universal payload extractor supporting text, content, message, msg, or raw body
     const body = req.body || {};
-    const textBody = body.text || body.content || body.message || body.msg || (typeof body === 'string' ? body : '');
-    const title = body.title || '';
-    const orderId = body.orderId || '';
-    const status = body.status || 'success';
+    const rawInput = JSON.stringify(body) + ' ' + (body.text || '') + ' ' + (body.title || '') + ' ' + (body.content || '') + ' ' + (body.message || '');
 
-    const rawInput = `${title} ${textBody} ${orderId} ${JSON.stringify(body)}`;
     let matchedOrderId = null;
+    const amountMatch = rawInput.match(/(?:₹|Rs\.?)\s*(\d+(?:\.\d+)?)/i);
 
-    if (orderId && activeCheckoutSessions[orderId]) {
-      matchedOrderId = orderId;
-    } else {
-      const ordMatch = rawInput.match(/ord_\d+/);
-      if (ordMatch && activeCheckoutSessions[ordMatch[0]]) {
-        matchedOrderId = ordMatch[0];
-      } else {
-        const amountMatch = rawInput.match(/(?:₹|Rs\.?)\s*(\d+(?:\.\d+)?)/i);
-        if (amountMatch) {
-          const receivedAmount = parseFloat(amountMatch[1]);
-          console.log(`🔍 Detected amount from SMS/Webhook: ₹${receivedAmount}`);
-          
-          let latestTime = 0;
-          for (const [id, session] of Object.entries(activeCheckoutSessions)) {
-            if (session.price === receivedAmount && session.timestamp > latestTime) {
-              latestTime = session.timestamp;
-              matchedOrderId = id;
-            }
-          }
+    if (amountMatch) {
+      const receivedAmount = parseFloat(amountMatch[1]);
+      console.log(`🔍 Detected amount from webhook payload: ₹${receivedAmount}`);
+      
+      let latestTime = 0;
+      for (const [id, session] of Object.entries(activeCheckoutSessions)) {
+        if (session.price === receivedAmount && session.timestamp > latestTime) {
+          latestTime = session.timestamp;
+          matchedOrderId = id;
         }
       }
     }
@@ -288,44 +274,42 @@ app.post('/webhook', async (req, res) => {
       return res.status(404).json({ error: 'Matching active order session not found', received: rawInput });
     }
 
-    if (status.toLowerCase() === 'success') {
-      const { userId, product, price } = session;
-      const filePath = getFilePathForProduct(product);
+    const { userId, product, price } = session;
+    const filePath = getFilePathForProduct(product);
 
-      if (filePath) {
-        const { keys } = await fetchKeysFromGitHub(filePath);
-        if (keys.length > 0) {
-          const deliveredKey = keys[0];
-          const success = await removeKeyFromGitHub(filePath, deliveredKey);
+    if (filePath) {
+      const { keys } = await fetchKeysFromGitHub(filePath);
+      if (keys.length > 0) {
+        const deliveredKey = keys[0];
+        const success = await removeKeyFromGitHub(filePath, deliveredKey);
 
-          if (success) {
-            if (!userPurchasedKeys[userId]) {
-              userPurchasedKeys[userId] = [];
-            }
-            userPurchasedKeys[userId].push({
-              product: product,
-              key: deliveredKey,
-              price: price,
-            });
-
-            await sendNoCodeAlert(`🚨 Automated SMS Sale Verified!\nUser ID: ${userId}\nProduct: ${product}\nAmount matched: ₹${price}\nKey Delivered: ${deliveredKey}`);
-
-            await bot.telegram.sendMessage(
-              userId,
-              `✅ **Payment Verified & Key Delivered Automatically!**\n\n📦 Product: \`${product}\`\n🔑 Your Key:\n\`${deliveredKey}\``,
-              { parse_mode: 'Markdown' }
-            );
-
-            delete activeCheckoutSessions[matchedOrderId];
-            return res.status(200).json({ status: 'success', message: 'Key delivered successfully via SMS' });
+        if (success) {
+          if (!userPurchasedKeys[userId]) {
+            userPurchasedKeys[userId] = [];
           }
-        } else {
+          userPurchasedKeys[userId].push({
+            product: product,
+            key: deliveredKey,
+            price: price,
+          });
+
+          await sendNoCodeAlert(`🚨 Automated Sale Verified!\nUser ID: ${userId}\nProduct: ${product}\nAmount matched: ₹${price}\nKey Delivered: ${deliveredKey}`);
+
           await bot.telegram.sendMessage(
             userId,
-            `⚠️ Payment received for **${product}**, but keys are currently out of stock! Please contact support @c_sandeep.`,
+            `✅ **Payment Verified & Key Delivered Automatically!**\n\n📦 Product: \`${product}\`\n🔑 Your Key:\n\`${deliveredKey}\``,
             { parse_mode: 'Markdown' }
           );
+
+          delete activeCheckoutSessions[matchedOrderId];
+          return res.status(200).json({ status: 'success', message: 'Key delivered successfully' });
         }
+      } else {
+        await bot.telegram.sendMessage(
+          userId,
+          `⚠️ Payment received for **${product}**, but keys are currently out of stock! Please contact support @c_sandeep.`,
+          { parse_mode: 'Markdown' }
+        );
       }
     }
 
